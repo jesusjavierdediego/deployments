@@ -1,0 +1,7 @@
+**/gitea
+**/mysql
+**/elasticsearch
+**/extensions
+**/kibana
+**/logstash
+**/mongo-volume

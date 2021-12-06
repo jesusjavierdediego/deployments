@@ -1,0 +1,282 @@
+version: "3.8"
+
+networks:
+  exp-ledger:
+    external: false
+
+services:
+  git-server:
+    container_name: gitserver
+    image: gitea/gitea:latest
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - DB_TYPE=mysql
+      - DB_HOST=git-db:3306
+      - DB_NAME=gitea
+      - DB_USER=gitea
+      - DB_PASSWD=gitea
+    restart: always
+    networks:
+      - exp-ledger
+    volumes:
+      - ./gitea:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "222:22"
+    depends_on:
+      - git-db
+  
+  git-db:
+    container_name: git-db
+    image: mysql:5.7
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=gitea
+      - MYSQL_USER=gitea
+      - MYSQL_PASSWORD=gitea
+      - MYSQL_DATABASE=gitea
+    networks:
+      - exp-ledger
+    volumes:
+      - ./mysql:/var/lib/mysql
+
+  zookeeper:
+    container_name: zookeeper
+    image: confluentinc/cp-zookeeper:latest
+    depends_on:
+      - git-server
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    ports:
+      - '2181:2181'      
+    networks:
+      - exp-ledger      
+
+  kafka:
+    container_name: kafka
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    networks:
+      - exp-ledger      
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "gitoperator-in:1:1:compact,gitoperator-out:1:1:compact"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  rdb:
+    container_name: rdb
+    image: mongo:latest
+    networks:
+      - exp-ledger
+    ports:
+      - "27017-27019:27017-27019"
+    volumes:
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+      - ./mongo-volume:/data/db
+    environment:
+      MONGO_ROOT_PWD: toor
+      MONGO_INITDB_DATABASE: TestRepository
+      MONGO_INITDB_ROOT_USERNAME: xqledger
+      MONGO_INITDB_ROOT_PASSWORD: toor
+      MONGO_WIREDTIGER_CACHE_SIZE_GB: '4.21'
+      MONGO_EXTRA_ARGS: '--ipv6 --quiet'
+    restart: always
+
+  apirouter:
+    image: apirouter:latest
+    container_name: jesusjavierdediego/apirouter:latest
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - exp-ledger
+    ports:
+      - "8081:8081"
+    depends_on:    
+      - git-operator
+      - rdb-operator
+
+  git-operator:
+    image: gitoperator:latest
+    container_name: jesusjavierdediego/gitoperator:latest
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+      - GITSERVER_URL=http://git-server:3000
+      - GITSERVER_LOCALREPOSLOCATION=/var/git/repositories/
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /var/tmp:/var/git/repositories:rw
+    networks:
+      - exp-ledger 
+    depends_on:    
+      - kafka
+
+  rdb-operator:
+    image: rdboperator:latest
+    container_name: jesusjavierdediego/rdboperator:latest
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /var/tmp:/var/git/repositories:rw
+    networks:
+      - exp-ledger 
+    depends_on:    
+      - rdb
+      - kafka    
+
+
+  # git-reader:
+  #   image: gitreader:latest
+  #   container_name: gitreader
+  #   build:
+  #     context: ../../gitreader
+  #     dockerfile: Dockerfile
+  #   restart: always
+  #   environment:
+  #     - GITSERVER_URL=http://git-server:3000
+  #     - GITSERVER_LOCALREPOSLOCATION=/var/git/repos/
+  #   volumes:
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /var/tmp:/var/git/repositories:ro
+  #   networks:
+  #     - exp-ledger   
+  #   ports:
+  #     - "50051:50051"  
+  #   depends_on:    
+  #     - git-server
+  
+  # rdb-reader:
+  #   image: rdbreader:latest
+  #   container_name: rdbreader
+  #   build:
+  #     context: ../../rdbreader
+  #     dockerfile: Dockerfile
+  #   restart: always
+  #   volumes:
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /var/tmp:/var/git/repositories:rw
+  #   ports:
+  #     - "50052:50052"
+  #   networks:
+  #     - exp-ledger 
+  #   depends_on:    
+  #     - rdb
+
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.2
+    container_name: es01
+    environment:
+      - xpack.security.enabled=false
+      - node.name=es01
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es02
+      - cluster.initial_master_nodes=es01,es02
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - exp-ledger
+
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.2
+    container_name: es02
+    environment:
+      - xpack.security.enabled=false
+      - node.name=es02
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01
+      - cluster.initial_master_nodes=es01,es02
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data02:/usr/share/elasticsearch/data
+    networks:
+      - exp-ledger
+
+  kib01:
+    image: docker.elastic.co/kibana/kibana:7.14.2
+    container_name: kib01
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://es01:9200
+      ELASTICSEARCH_HOSTS: http://es01:9200
+    networks:
+      - exp-ledger
+    depends_on:
+      - es01
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.14.2
+    container_name: logstash
+    ports:
+      - 5044:5044    
+    # command: logstash -f /etc/logstash/conf.d/logstash.conf
+    volumes:
+      - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      ELASTICSEARCH_URL: http://es01:9200
+      ELASTICSEARCH_HOSTS: http://es01:9200
+    networks:
+      - exp-ledger
+    depends_on:
+      - es01
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.14.2
+    container_name: filebeat
+    volumes:
+      - ./filebeat/config.yml:/usr/share/filebeat/filebeat.yml:ro
+      - filebeat:/usr/share/filebeat/data
+      - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - exp-ledger
+    depends_on:
+      - es01
+    user: root
+
+volumes:
+  localreposlocation:
+    driver: local
+  data01:
+    driver: local
+  data02:
+    driver: local
+  filebeat:
