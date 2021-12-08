@@ -160,8 +160,7 @@ services:
       - 5044:5044    
     # command: logstash -f /etc/logstash/conf.d/logstash.conf
     volumes:
-      - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
-      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./logstash:/usr/share/logstash/pipeline:ro
     environment:
       ELASTICSEARCH_URL: http://es01:9200
       ELASTICSEARCH_HOSTS: http://es01:9200
@@ -174,7 +173,7 @@ services:
     image: docker.elastic.co/beats/filebeat:7.14.2
     container_name: filebeat
     volumes:
-      - ./filebeat/config.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./filebeat:/usr/share/filebeat:ro
       - filebeat:/usr/share/filebeat/data
       - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
       - /var/run/docker.sock:/var/run/docker.sock
