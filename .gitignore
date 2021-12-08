@@ -3,5 +3,4 @@
 **/elasticsearch
 **/extensions
 **/kibana
-**/logstash
 **/mongo-volume
