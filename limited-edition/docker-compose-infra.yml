@@ -105,6 +105,7 @@ services:
       - xpack.security.enabled=false
       - node.name=es01
       - cluster.name=es-docker-cluster
+      - systemctl restart docker
       - discovery.seed_hosts=es02
       - cluster.initial_master_nodes=es01,es02
       - bootstrap.memory_lock=true
