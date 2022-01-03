@@ -1,0 +1,169 @@
+version: "3.3"
+
+networks:
+  exp-ledger:
+    external: false
+
+services:   
+  git-operator:
+    image: jesusjavierdediego/gitoperator:1.1
+    container_name: gitoperator
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+      - GITSERVER_URL=http://git-server:3000
+      - GITSERVER_LOCALREPOSLOCATION=/var/git/repositories/
+      - 
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /var/tmp:/var/git/repositories:rw
+    networks:
+      - exp-ledger 
+    depends_on:    
+      - kafka
+
+  rdb-operator:
+    image: jesusjavierdediego/rdboperator:1.0
+    container_name: rdboperator
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /var/tmp:/var/git/repositories:rw
+    networks:
+      - exp-ledger 
+    depends_on:    
+      - rdb
+      - kafka    
+
+
+  # git-reader:
+  #   image: jesusjavierdediego/gitreader:1.0
+  #   container_name: gitreader
+  #   restart: always
+  #   environment:
+  #     - GITSERVER_URL=http://git-server:3000
+  #     - GITSERVER_LOCALREPOSLOCATION=/var/git/repos/
+  #   volumes:
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /var/tmp:/var/git/repositories:ro
+  #   networks:
+  #     - exp-ledger   
+  #   ports:
+  #     - "50051:50051"  
+  #   depends_on:    
+  #     - git-server
+  
+  # rdb-reader:
+  #   image: jesusjavierdediego/rdbreader:1.0
+  #   container_name: rdbreader
+  #   restart: always
+  #   volumes:
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /var/tmp:/var/git/repositories:rw
+  #   ports:
+  #     - "50052:50052"
+  #   networks:
+  #     - exp-ledger 
+  #   depends_on:    
+  #     - rdb
+
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.2
+    container_name: es01
+    environment:
+      - xpack.security.enabled=false
+      - node.name=es01
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es02
+      - cluster.initial_master_nodes=es01,es02
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - exp-ledger
+
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.2
+    container_name: es02
+    environment:
+      - xpack.security.enabled=false
+      - node.name=es02
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01
+      - cluster.initial_master_nodes=es01,es02
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data02:/usr/share/elasticsearch/data
+    networks:
+      - exp-ledger
+
+  kib01:
+    image: docker.elastic.co/kibana/kibana:7.14.2
+    container_name: kib01
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://es01:9200
+      ELASTICSEARCH_HOSTS: http://es01:9200
+    networks:
+      - exp-ledger
+    depends_on:
+      - es01
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.14.2
+    container_name: logstash
+    ports:
+      - 5044:5044    
+    # command: logstash -f /etc/logstash/conf.d/logstash.conf
+    volumes:
+      - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      ELASTICSEARCH_URL: http://es01:9200
+      ELASTICSEARCH_HOSTS: http://es01:9200
+    networks:
+      - exp-ledger
+    depends_on:
+      - es01
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.14.2
+    container_name: filebeat
+    volumes:
+      - ./filebeat/config.yml:/usr/share/filebeat/filebeat.yml:ro
+      - filebeat:/usr/share/filebeat/data
+      - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - exp-ledger
+    depends_on:
+      - es01
+    user: root
+
+volumes:
+  localreposlocation:
+    driver: local
+  data01:
+    driver: local
+  data02:
+    driver: local
+  filebeat:
