@@ -96,26 +96,27 @@ services:
       MONGO_EXTRA_ARGS: '--ipv6 --quiet'
     restart: always
 
-  apirouter:
-    image: apirouter:latest
-    container_name: jesusjavierdediego/apirouter:latest
+  git-reader:
+    image: jesusjavierdediego/gitreader:latest
+    container_name: gitreader
     restart: always
     environment:
-      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+      - GITSERVER_URL=http://git-server:3000
+      - GITSERVER_LOCALREPOSLOCATION=/var/git/repos/
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
+      - /var/tmp:/var/git/repositories:ro
     networks:
-      - exp-ledger
+      - exp-ledger   
     ports:
-      - "8081:8081"
+      - "50051:50051"  
     depends_on:    
-      - git-operator
-      - rdb-operator
-
+      - git-server
+  
   git-operator:
-    image: gitoperator:latest
-    container_name: jesusjavierdediego/gitoperator:latest
+    image: jesusjavierdediego/gitoperator:latest
+    container_name: gitoperator
     restart: always
     environment:
       - KAFKA_BOOTSTRAPSERVER=kafka:9094
@@ -131,8 +132,8 @@ services:
       - kafka
 
   rdb-operator:
-    image: rdboperator:latest
-    container_name: jesusjavierdediego/rdboperator:latest
+    image: jesusjavierdediego/rdboperator:latest
+    container_name: rdboperator
     restart: always
     environment:
       - KAFKA_BOOTSTRAPSERVER=kafka:9094
@@ -146,51 +147,42 @@ services:
       - rdb
       - kafka    
 
+  rdb-reader:
+    image: jesusjavierdediego/rdbreader:latest
+    container_name: rdbreader
+    restart: always
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /var/tmp:/var/git/repositories:rw
+    ports:
+      - "50052:50052"
+    networks:
+      - exp-ledger 
+    depends_on:    
+      - rdb
 
-  # git-reader:
-  #   image: gitreader:latest
-  #   container_name: gitreader
-  #   build:
-  #     context: ../../gitreader
-  #     dockerfile: Dockerfile
-  #   restart: always
-  #   environment:
-  #     - GITSERVER_URL=http://git-server:3000
-  #     - GITSERVER_LOCALREPOSLOCATION=/var/git/repos/
-  #   volumes:
-  #     - /etc/timezone:/etc/timezone:ro
-  #     - /etc/localtime:/etc/localtime:ro
-  #     - /var/tmp:/var/git/repositories:ro
-  #   networks:
-  #     - exp-ledger   
-  #   ports:
-  #     - "50051:50051"  
-  #   depends_on:    
-  #     - git-server
-  
-  # rdb-reader:
-  #   image: rdbreader:latest
-  #   container_name: rdbreader
-  #   build:
-  #     context: ../../rdbreader
-  #     dockerfile: Dockerfile
-  #   restart: always
-  #   volumes:
-  #     - /etc/timezone:/etc/timezone:ro
-  #     - /etc/localtime:/etc/localtime:ro
-  #     - /var/tmp:/var/git/repositories:rw
-  #   ports:
-  #     - "50052:50052"
-  #   networks:
-  #     - exp-ledger 
-  #   depends_on:    
-  #     - rdb
+  apirouter:
+    image: jesusjavierdediego/apirouter:latest
+    container_name: apirouter
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAPSERVER=kafka:9094
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - exp-ledger
+    ports:
+      - "8081:8081"
+    depends_on:    
+      - git-operator
+      - rdb-operator
 
   es01:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.13.4
     container_name: es01
     environment:
-      - xpack.security.enabled=false
       - node.name=es01
       - cluster.name=es-docker-cluster
       - discovery.seed_hosts=es02
@@ -209,10 +201,9 @@ services:
       - exp-ledger
 
   es02:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.13.4
     container_name: es02
     environment:
-      - xpack.security.enabled=false
       - node.name=es02
       - cluster.name=es-docker-cluster
       - discovery.seed_hosts=es01
@@ -229,7 +220,7 @@ services:
       - exp-ledger
 
   kib01:
-    image: docker.elastic.co/kibana/kibana:7.14.2
+    image: docker.elastic.co/kibana/kibana:7.13.4
     container_name: kib01
     ports:
       - 5601:5601
@@ -242,7 +233,7 @@ services:
       - es01
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:7.14.2
+    image: docker.elastic.co/logstash/logstash:7.13.4
     container_name: logstash
     ports:
       - 5044:5044    
@@ -259,7 +250,7 @@ services:
       - es01
 
   filebeat:
-    image: docker.elastic.co/beats/filebeat:7.14.2
+    image: docker.elastic.co/beats/filebeat:7.13.4
     container_name: filebeat
     volumes:
       - ./filebeat/config.yml:/usr/share/filebeat/filebeat.yml:ro
